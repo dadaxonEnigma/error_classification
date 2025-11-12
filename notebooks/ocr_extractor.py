@@ -4,22 +4,20 @@ from PIL import Image
 import pytesseract
 import os
 
-# путь до tesseract, если нужно
+# Укажи путь к Tesseract, если нужно
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 
+# =========================================================
+# 🔴 1. Поиск красной области — оставляем как есть
+# =========================================================
 def find_red_region(img_path, show_debug=True):
-    """
-    Находит красную область на изображении и возвращает её обрезанную версию.
-    Если show_debug=True — показывает и сохраняет визуализацию.
-    """
     img = cv2.imread(img_path)
     if img is None:
         raise ValueError(f"Не удалось открыть изображение: {img_path}")
 
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-    # Красный цвет имеет два диапазона оттенков в HSV
     lower_red1 = np.array([0, 100, 100])
     upper_red1 = np.array([10, 255, 255])
     lower_red2 = np.array([160, 100, 100])
@@ -34,11 +32,9 @@ def find_red_region(img_path, show_debug=True):
         print("❌ Красная область не найдена.")
         return None
 
-    # Берём самый большой контур — обычно это плашка ошибки
     contour = max(contours, key=cv2.contourArea)
     x, y, w, h = cv2.boundingRect(contour)
 
-    # рисуем рамку для визуализации
     if show_debug:
         debug_img = img.copy()
         cv2.rectangle(debug_img, (x, y), (x + w, y + h), (0, 255, 0), 3)
@@ -46,39 +42,83 @@ def find_red_region(img_path, show_debug=True):
         cv2.imwrite(save_path, debug_img)
         print(f"✅ Сохранено изображение с рамкой: {save_path}")
 
-        # Если хочешь показать окно — можно раскомментировать (вне Jupyter)
-        # cv2.imshow("Detected Error Region", debug_img)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
-
     cropped = img[y:y+h, x:x+w]
     return cropped
 
 
-def preprocess_for_ocr(image):
-    """Улучшаем изображение перед OCR"""
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (3, 3), 0)
-    _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    return thresh
+# =========================================================
+# 🧠 2. Улучшение изображения после обрезки
+# =========================================================
+
+def enhance_edges(img):
+    """Повышает резкость и восстанавливает контуры букв."""
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (0, 0), sigmaX=1.5)
+    unsharp = cv2.addWeighted(gray, 1.7, blur, -0.7, 0)
+    lap = cv2.Laplacian(unsharp, cv2.CV_64F)
+    lap = cv2.convertScaleAbs(lap)
+    sharpened = cv2.addWeighted(unsharp, 1.0, lap, 0.4, 0)
+    return sharpened
 
 
+def normalize_lighting(gray):
+    """Выравнивает освещённость и повышает локальный контраст."""
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 25))
+    tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, kernel)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    norm = clahe.apply(tophat)
+    return norm
+
+
+def adaptive_thicken(gray):
+    """Делает тонкий текст чуть жирнее, не искажая форму."""
+    kernel = np.ones((2, 2), np.uint8)
+    edges = cv2.Canny(gray, 30, 100)
+    dilated = cv2.dilate(edges, kernel, iterations=1)
+    combined = cv2.bitwise_or(gray, dilated)
+    return combined
+
+
+def super_preprocess(image, img_path=None, show_debug=True):
+    """
+    Комбинированное улучшение качества изображения перед OCR.
+    Сохраняет все промежуточные этапы.
+    """
+    base_dir = os.path.dirname(img_path) if img_path else "."
+
+    # 🔹 1. Повышаем резкость
+    step1 = enhance_edges(image)
+    cv2.imwrite(os.path.join(base_dir, "debug_step1_sharpened.jpg"), step1)
+
+
+    print(f"🧩 Сохранены все этапы улучшения в: {base_dir}")
+
+    return step1
+
+
+# =========================================================
+# 🔤 3. Извлечение текста
+# =========================================================
 def extract_error_text(img_path, langs="eng+rus+uzb", show_debug=True):
-    """
-    Ищет красную плашку, показывает где она, и извлекает из неё текст ошибки.
-    """
     red_region = find_red_region(img_path, show_debug=show_debug)
     if red_region is None:
         return "❌ Красная область не найдена"
 
-    processed = preprocess_for_ocr(red_region)
+    processed = super_preprocess(red_region, img_path, show_debug)
     pil_img = Image.fromarray(processed)
-    text = pytesseract.image_to_string(pil_img, lang=langs)
+
+    custom_config = r'--oem 3 --psm 6'  # 6 — режим многострочного текста
+    text = pytesseract.image_to_string(pil_img, lang=langs, config=custom_config)
     return text.strip()
 
 
+# =========================================================
+# 🚀 4. Тест
+# =========================================================
 if __name__ == "__main__":
-    path = "../data/raw/test13.jpg"  # укажи свой файл
+    path = "../data/raw/test25.jpg"  # Укажи путь к изображению
     text = extract_error_text(path)
-    print("📜 Извлечённый текст ошибки:")
+    print("\n📜 Извлечённый текст ошибки:")
     print(text)
+
+# проблемы фото(20,23)
