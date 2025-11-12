@@ -3,6 +3,7 @@ import numpy as np
 from PIL import Image
 import pytesseract
 import os
+import re
 
 # Укажи путь к Tesseract, если нужно
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -44,6 +45,83 @@ def find_red_region(img_path, show_debug=True):
 
     cropped = img[y:y+h, x:x+w]
     return cropped
+
+
+def extract_status_text(img_path, langs="eng+rus+uzb", show_debug=True):
+    """
+    Извлекает статус (Approved / Not approved / Tasdiqlangan / Tasdiqlanmagan / Bekor Qilingan / Одобрено)
+    с поддержкой зелёных и жёлтых текстов на белом фоне.
+    """
+    import re
+
+    img = cv2.imread(img_path)
+    if img is None:
+        raise ValueError(f"Не удалось открыть изображение: {img_path}")
+
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+    # 🎨 Диапазоны цвета
+    lower_green = np.array([35, 40, 40])
+    upper_green = np.array([90, 255, 255])
+    lower_yellow = np.array([15, 50, 50])
+    upper_yellow = np.array([35, 255, 255])
+
+    # Маски
+    mask_green = cv2.inRange(hsv, lower_green, upper_green)
+    mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+    mask = cv2.bitwise_or(mask_green, mask_yellow)
+
+    # Изолируем цветной текст
+    result = cv2.bitwise_and(img, img, mask=mask)
+    gray = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+
+    # Усиливаем контраст и инвертируем
+    gray = cv2.convertScaleAbs(gray, alpha=3.0, beta=0)
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    if show_debug:
+        debug_path = os.path.join(os.path.dirname(img_path), "debug_status_mask.jpg")
+        cv2.imwrite(debug_path, thresh)
+        print(f"🧩 Отладочная маска сохранена: {debug_path}")
+
+    # OCR по цветным надписям
+    data = pytesseract.image_to_data(
+        thresh, lang=langs, config="--psm 6", output_type=pytesseract.Output.DICT
+    )
+
+    found_status = None
+    best_conf = 0
+
+    for i, word in enumerate(data["text"]):
+        if not word.strip():
+            continue
+
+        conf_raw = data["conf"][i]
+        try:
+            conf = int(float(conf_raw))
+        except (ValueError, TypeError):
+            conf = 0
+
+        clean_word = re.sub(r'[^A-Za-zА-Яа-я]', '', word).lower()
+
+        if conf < 40:
+            continue
+
+        if clean_word in ["approved", "tasdiqlangan", "одобрено"]:
+            found_status = "Approved"
+            best_conf = conf
+        elif clean_word in ["notapproved", "radetilgan", "неодобрено"]:
+            found_status = "Not approved"
+            best_conf = conf
+
+    if found_status:
+        print(f"✅ Найден статус: {found_status} (уверенность {best_conf}%)")
+        return found_status
+    else:
+        print("❌ Статус не найден.")
+        return "❌ Статус не найден"
+
+
 
 
 # =========================================================
@@ -112,13 +190,22 @@ def extract_error_text(img_path, langs="eng+rus+uzb", show_debug=True):
     return text.strip()
 
 
-# =========================================================
-# 🚀 4. Тест
-# =========================================================
 if __name__ == "__main__":
-    path = "../data/raw/test25.jpg"  # Укажи путь к изображению
-    text = extract_error_text(path)
-    print("\n📜 Извлечённый текст ошибки:")
-    print(text)
+    path = "../data/raw/test1_8.jpg"  # Укажи путь к изображению
 
-# проблемы фото(20,23)
+    print("🔍 Анализ изображения...")
+
+    # 1️⃣ Пытаемся найти красную область (ошибка)
+    try:
+        text = extract_error_text(path, show_debug=True)
+        if text and "❌" not in text and len(text.strip()) > 2:
+            print("\n📜 Извлечённый текст ошибки:")
+            print(text)
+        else:
+            # 2️⃣ Если красного баннера нет — ищем статус (Approved / Not approved)
+            from ocr_extractor import extract_status_text
+            status = extract_status_text(path, show_debug=True)
+            print("\n📗 Извлечённый статус:")
+            print(status)
+    except Exception as e:
+        print(f"⚠️ Ошибка при обработке: {e}")
