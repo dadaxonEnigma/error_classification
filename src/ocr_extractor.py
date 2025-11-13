@@ -78,35 +78,26 @@ def high_res_preprocess(img, debug_dir=None, prefix="debug"):
     """
     Улучшение изображения + сохранение ВСЕХ этапов в debug_dir.
     """
-    if debug_dir:
-        os.makedirs(debug_dir, exist_ok=True)
 
-    # 0) original
-    if debug_dir:
-        cv2.imwrite(os.path.join(debug_dir, f"{prefix}_step0_original.png"), img)
 
     # 1) шумоподавление
     den = cv2.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 21)
-    if debug_dir:
-        cv2.imwrite(os.path.join(debug_dir, f"{prefix}_step1_denoise.png"), den)
+
 
     # 2) super-resolution x2
     up = upscale_cv2(den)
-    if debug_dir:
-        cv2.imwrite(os.path.join(debug_dir, f"{prefix}_step2_upscaled.png"), up)
+
 
     # 3) CLAHE
     gray = cv2.cvtColor(up, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     cl = clahe.apply(gray)
-    if debug_dir:
-        cv2.imwrite(os.path.join(debug_dir, f"{prefix}_step3_clahe.png"), cl)
+
 
     # 4) sharpen
     blur = cv2.GaussianBlur(cl, (0, 0), 2)
     sharp = cv2.addWeighted(cl, 1.7, blur, -0.7, 0)
-    if debug_dir:
-        cv2.imwrite(os.path.join(debug_dir, f"{prefix}_step4_sharpen.png"), sharp)
+
     return sharp
 
 
@@ -242,7 +233,6 @@ def super_preprocess(image, img_path=None, show_debug=True):
 
     # 🔹 1. Повышаем резкость
     step1 = enhance_edges(image)
-    cv2.imwrite(os.path.join(base_dir, "debug_step1_sharpened.jpg"), step1)
 
 
     print(f"🧩 Сохранены все этапы улучшения в: {base_dir}")
