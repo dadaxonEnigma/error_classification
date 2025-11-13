@@ -19,11 +19,25 @@ RESPONSE_BASE = {
     "wrong verification code":
         "Assalomu alaykum! Siz kiritgan tasdiqlash kodi noto‘g‘ri. Iltimos, SMSda yuborilgan kodni qayta kiriting.",
 
+    "The organization's address is not completely entered":
+        "Assalomu alaykum! Iltimos, sozlamalar bo‘limiga kirib manzil ma’lumotlaringizni to‘g‘ri to‘ldiring.",
+
+    "Query did not return a unique result: 2 results was returned":
+        "Assalomu alaykum! Murojaatingiz qabul qilindi.",
+
+    "No matching applications found":
+        "Assalomu alaykum! Murojaatingiz qabul qilindi.",
+
+    "Invalid date":
+        "Assalomu alaykum! Murojaatingiz qabul qilindi.",
+
+    "Sms gateway error":
+        "Assalomu alaykum! Murojaatingiz qabul qilindi.",
+
 
     # fallback
     "unknown":
-        "Kechirasiz, ushbu rasm bo‘yicha aniq xulosa chiqarib bo‘lmadi. "
-        "Iltimos, rasmni aniqroq va to‘liq yuboring."
+         "Assalomu alaykum! Murojaatingiz qabul qilindi."
 }
 
 
